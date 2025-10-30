@@ -1,0 +1,4 @@
+azure-functions
+requests
+# Azure Function App'in içine yüklenen Application Settings'den (Uygulama Ayarları) 
+# değerleri çekmek için ek kütüphane gerekmez.
