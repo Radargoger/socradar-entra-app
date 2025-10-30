@@ -1,0 +1,208 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "appName": {
+      "type": "string",
+      "defaultValue": "[format('socradar-entra-sync-{0}', uniqueString(resourceGroup().id))]",
+      "metadata": {
+        "description": "Azure Function App adı. Benzersiz olmalıdır."
+      }
+    },
+    "tenantId": {
+      "type": "string",
+      "metadata": {
+        "description": "Azure Entra ID Kiracı Kimliği (Tenant GUID)."
+      }
+    },
+    "clientId": {
+      "type": "string",
+      "metadata": {
+        "description": "Uygulama Kayıt İstemci Kimliği (Application/Client ID)."
+      }
+    },
+    "clientSecret": {
+      "type": "securestring", // Girdi gizlenecek (Azure Portal'da yıldızlarla gösterilir)
+      "metadata": {
+        "description": "Uygulama Kayıt İstemci Sırrı (Client Secret Value)."
+      }
+    },
+    "socradarApiUrl": {
+      "type": "string",
+      "defaultValue": "https://api.socradar.com/v1/ingest/entraevents", // Varsayılan bir URL bırakılabilir
+      "metadata": {
+        "description": "SocRadar veri alım API URL'si."
+      }
+    },
+    "socradarApiKey": {
+      "type": "securestring", // Girdi gizlenecek
+      "metadata": {
+        "description": "SocRadar API Anahtarı."
+      }
+    },
+    "storageAccountName": {
+      "type": "string",
+      "defaultValue": "[format('st{0}', uniqueString(resourceGroup().id))]",
+      "metadata": {
+        "description": "Depolama hesabı adı. Küçük harf ve rakamlardan oluşmalı, 24 karakterden az olmalıdır."
+      }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Kaynakların dağıtılacağı Azure konumu."
+      }
+    },
+    "pythonVersion": {
+      "type": "string",
+      "defaultValue": "3.11",
+      "metadata": {
+        "description": "Function App için Python Sürümü."
+      }
+    }
+  },
+  "variables": {
+    "tags": {
+      "environment": "production",
+      "application": "socradar-integration"
+    },
+    "skuName": "Y1",
+    "skuTier": "Dynamic"
+  },
+  "resources": [
+    // 1. Depolama Hesabı
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2023-01-01",
+      "name": "[parameters('storageAccountName')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Standard_LRS"
+      },
+      "kind": "StorageV2"
+    },
+    // 2. Application Insights
+    {
+      "type": "Microsoft.Insights/components",
+      "apiVersion": "2020-02-02",
+      "name": "[parameters('appName')]",
+      "location": "[parameters('location')]",
+      "kind": "web",
+      "properties": {
+        "Application_Type": "web",
+        "Request_Source": "IbizaAIExt"
+      }
+    },
+    // 3. App Service Plan (Consumption)
+    {
+      "type": "Microsoft.Web/serverfarms",
+      "apiVersion": "2022-03-01",
+      "name": "[parameters('appName')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "[variables('skuName')]",
+        "tier": "[variables('skuTier')]"
+      },
+      "properties": {
+        "reserved": true
+      }
+    },
+    // 4. Function App
+    {
+      "type": "Microsoft.Web/sites",
+      "apiVersion": "2022-03-01",
+      "name": "[parameters('appName')]",
+      "location": "[parameters('location')]",
+      "tags": "[variables('tags')]",
+      "kind": "functionapp",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]",
+        "[resourceId('Microsoft.Web/serverfarms', parameters('appName'))]",
+        "[resourceId('Microsoft.Insights/components', parameters('appName'))]"
+      ],
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', parameters('appName'))]",
+        "httpsOnly": true,
+        "siteConfig": {
+          "appSettings": [
+            // Temel Ayarlar
+            {
+              "name": "AzureWebJobsStorage",
+              "value": "[format('DefaultEndpointsProtocol=https;AccountName={0};AccountKey={1}', parameters('storageAccountName'), listKeys(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), '2023-01-01').keys[0].value)]"
+            },
+            {
+              "name": "FUNCTIONS_WORKER_RUNTIME",
+              "value": "python"
+            },
+            {
+              "name": "FUNCTIONS_EXTENSION_VERSION",
+              "value": "~4"
+            },
+            {
+              "name": "WEBSITE_RUN_FROM_PACKAGE",
+              "value": "1"
+            },
+            {
+              "name": "SCM_DO_BUILD_DURING_DEPLOYMENT",
+              "value": "1"
+            },
+            // Python Sürümü
+            {
+              "name": "FUNCTION_APP_PYTHON_VERSION",
+              "value": "[parameters('pythonVersion')]"
+            },
+            // Entra ID ve SocRadar Ayarları - Değerler Portaldan Alınacak
+            {
+              "name": "TENANT_ID",
+              "value": "[parameters('tenantId')]"
+            },
+            {
+              "name": "CLIENT_ID",
+              "value": "[parameters('clientId')]"
+            },
+            {
+              "name": "CLIENT_SECRET",
+              "value": "[parameters('clientSecret')]"
+            },
+            {
+              "name": "SOCRADAR_API_URL",
+              "value": "[parameters('socradarApiUrl')]"
+            },
+            {
+              "name": "SOCRADAR_API_KEY",
+              "value": "[parameters('socradarApiKey')]"
+            },
+            // İzleme Ayarları
+            {
+              "name": "APPINSIGHTS_INSTRUMENTATIONKEY",
+              "value": "[reference(resourceId('Microsoft.Insights/components', parameters('appName')), '2020-02-02').InstrumentationKey]"
+            },
+            {
+              "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+              "value": "[reference(resourceId('Microsoft.Insights/components', parameters('appName')), '2020-02-02').ConnectionString]"
+            },
+            {
+              "name": "AZURE_CLIENT_ID",
+              "value": "[parameters('clientId')]"
+            }
+          ],
+          "linuxFxVersion": "[format('PYTHON|{0}', parameters('pythonVersion'))]"
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "functionAppName": {
+      "type": "string",
+      "value": "[parameters('appName')]"
+    },
+    "endpoint": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Web/sites', parameters('appName')), '2022-03-01').defaultHostName]"
+    }
+  }
+}
