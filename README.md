@@ -17,7 +17,7 @@ This Azure Function automatically fetches security and audit logs from Microsoft
 
 The button below will deploy the necessary Azure resources (Function App, Storage Account, Application Insights) using the provided ARM template.
 
-[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https://raw.githubusercontent.com/Radargoger/socradar-entra-app/main/azuredeploy.json)
+[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https://raw.githubusercontent.com/Radargoger/socradar-entra-app/main/host.json)
 
 **⚠️ Important:** During deployment, you must provide your saved **Client ID**, **Client Secret**, **Tenant ID**, and **SocRadar API Key** into the form fields.
 
